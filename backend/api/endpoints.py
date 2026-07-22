@@ -4,9 +4,14 @@ Quantoryx — API Endpoints Router Module.
 
 This module maps HTTP paths to backend operations, validating inputs through 
 Pydantic model structures and delegating system computations to the QuantoryxService.
+All sensitive simulation, analysis, data retrieval, and validator routes are protected
+using secure dependency injection authentication gates.
 """
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+# Import auth dependencies
+from backend.api.deps import get_current_user, get_current_admin_user
 
 # Import schemas and services
 from backend.schemas.api_schemas import (
@@ -37,7 +42,7 @@ router = APIRouter(tags=["Quantoryx Core Engine API"])
 
 
 # =====================================================================
-# SYSTEM DIAGNOSTIC ENDPOINTS
+# PUBLIC DIAGNOSTIC ENDPOINTS
 # =====================================================================
 
 @router.get(
@@ -45,7 +50,7 @@ router = APIRouter(tags=["Quantoryx Core Engine API"])
     response_model=HealthResponse,
     status_code=status.HTTP_200_OK,
     summary="Get API Operational Health",
-    description="Returns operating uptime and UTC system times to monitor service integrity."
+    description="Returns operating uptime and UTC system times to monitor service integrity. (Public Endpoint)"
 )
 async def get_health():
     try:
@@ -62,7 +67,7 @@ async def get_health():
     response_model=VersionResponse,
     status_code=status.HTTP_200_OK,
     summary="Get System Version Metadata",
-    description="Returns system branding details and semantic version codes."
+    description="Returns system branding details and semantic version codes. (Public Endpoint)"
 )
 async def get_version():
     try:
@@ -79,7 +84,7 @@ async def get_version():
     response_model=StatusResponse,
     status_code=status.HTTP_200_OK,
     summary="Get Framework Status Overview",
-    description="Returns recognized instruments, chart timeframes, and folder initialization flags."
+    description="Returns recognized instruments, chart timeframes, and folder initialization flags. (Public Endpoint)"
 )
 async def get_status():
     try:
@@ -92,7 +97,7 @@ async def get_status():
 
 
 # =====================================================================
-# SIMULATION & ANALYSIS ENDPOINTS (POST)
+# PROTECTED SIMULATION & ANALYSIS ENDPOINTS (POST - User Access Required)
 # =====================================================================
 
 @router.post(
@@ -100,9 +105,12 @@ async def get_status():
     response_model=BacktestResponse,
     status_code=status.HTTP_200_OK,
     summary="Run Strategy Backtest",
-    description="Runs a single-strategy backtest sweep over pricing history and compiles KPIs."
+    description="Runs a single-strategy backtest sweep over pricing history and compiles KPIs. (Auth Required)"
 )
-async def post_backtest(payload: BacktestRequest):
+async def post_backtest(
+    payload: BacktestRequest,
+    current_user: dict = Depends(get_current_user)
+):
     try:
         result = QuantoryxService.run_backtest_simulation(
             strategy=payload.strategy,
@@ -130,9 +138,12 @@ async def post_backtest(payload: BacktestRequest):
     response_model=OptimizeResponse,
     status_code=status.HTTP_200_OK,
     summary="Run Parameter Grid Optimization",
-    description="Sweeps strategy parameters over prices, ranking sets by a target performance metric."
+    description="Sweeps strategy parameters over prices, ranking sets by a target performance metric. (Auth Required)"
 )
-async def post_optimize(payload: OptimizeRequest):
+async def post_optimize(
+    payload: OptimizeRequest,
+    current_user: dict = Depends(get_current_user)
+):
     try:
         result = QuantoryxService.run_optimization_sweep(
             strategy=payload.strategy,
@@ -158,9 +169,12 @@ async def post_optimize(payload: OptimizeRequest):
     response_model=WalkForwardResponse,
     status_code=status.HTTP_200_OK,
     summary="Run Walk-Forward Validation",
-    description="Executes rolling training (In-Sample) and testing (Out-of-Sample) validation folds."
+    description="Executes rolling training (In-Sample) and testing (Out-of-Sample) validation folds. (Auth Required)"
 )
-async def post_walk_forward(payload: WalkForwardRequest):
+async def post_walk_forward(
+    payload: WalkForwardRequest,
+    current_user: dict = Depends(get_current_user)
+):
     try:
         result = QuantoryxService.run_walk_forward_validation(
             strategy=payload.strategy,
@@ -188,9 +202,12 @@ async def post_walk_forward(payload: WalkForwardRequest):
     response_model=PaperTradingResponse,
     status_code=status.HTTP_200_OK,
     summary="Run Paper Trading Simulator",
-    description="Executes virtual chronological orders on leveraged accounts, logging transactions and stops."
+    description="Executes virtual chronological orders on leveraged accounts, logging transactions and stops. (Auth Required)"
 )
-async def post_paper_trading(payload: PaperTradingRequest):
+async def post_paper_trading(
+    payload: PaperTradingRequest,
+    current_user: dict = Depends(get_current_user)
+):
     try:
         result = QuantoryxService.run_paper_trading_simulator(
             symbol=payload.symbol,
@@ -216,9 +233,12 @@ async def post_paper_trading(payload: PaperTradingRequest):
     response_model=AIAnalysisResponse,
     status_code=status.HTTP_200_OK,
     summary="Run AI Decision Analysis",
-    description="Evaluates indicator configurations, detects active regimes, and nominates champion models."
+    description="Evaluates indicator configurations, detects active regimes, and nominates champion models. (Auth Required)"
 )
-async def post_ai_analysis(payload: AIAnalysisRequest):
+async def post_ai_analysis(
+    payload: AIAnalysisRequest,
+    current_user: dict = Depends(get_current_user)
+):
     try:
         result = QuantoryxService.run_ai_strategy_selection(
             symbol=payload.symbol,
@@ -239,7 +259,7 @@ async def post_ai_analysis(payload: AIAnalysisRequest):
 
 
 # =====================================================================
-# DATA RETRIEVAL ENDPOINTS (GET)
+# PROTECTED DATA RETRIEVAL ENDPOINTS (GET - User Access Required)
 # =====================================================================
 
 @router.get(
@@ -247,9 +267,9 @@ async def post_ai_analysis(payload: AIAnalysisRequest):
     response_model=DashboardResponse,
     status_code=status.HTTP_200_OK,
     summary="Get Dashboard Summary Overview",
-    description="Consolidates system states, active session indicators, and transaction summaries."
+    description="Consolidates system states, active session indicators, and transaction summaries. (Auth Required)"
 )
-async def get_dashboard():
+async def get_dashboard(current_user: dict = Depends(get_current_user)):
     try:
         return QuantoryxService.get_dashboard_summary_overview()
     except Exception as e:
@@ -264,9 +284,9 @@ async def get_dashboard():
     response_model=PortfolioResponse,
     status_code=status.HTTP_200_OK,
     summary="Get Portfolio Equity Performance",
-    description="Assembles floating balance curve datasets, peak drawdowns, and annualized Sharpe ratios."
+    description="Assembles floating balance curve datasets, peak drawdowns, and annualized Sharpe ratios. (Auth Required)"
 )
-async def get_portfolio():
+async def get_portfolio(current_user: dict = Depends(get_current_user)):
     try:
         return QuantoryxService.get_portfolio_snapshot()
     except Exception as e:
@@ -281,9 +301,9 @@ async def get_portfolio():
     response_model=ReportsListResponse,
     status_code=status.HTTP_200_OK,
     summary="List Compiled System Reports",
-    description="Scans standard output directories and lists registered CSV output documents."
+    description="Scans standard output directories and lists registered CSV output documents. (Auth Required)"
 )
-async def get_reports():
+async def get_reports(current_user: dict = Depends(get_current_user)):
     try:
         return QuantoryxService.get_reports_registry()
     except Exception as e:
@@ -298,9 +318,9 @@ async def get_reports():
     response_model=StrategiesResponse,
     status_code=status.HTTP_200_OK,
     summary="List Registered Trading Strategies",
-    description="Returns metadata specifications and default parameter definitions of strategies."
+    description="Returns metadata specifications and default parameter definitions of strategies. (Auth Required)"
 )
-async def get_strategies():
+async def get_strategies(current_user: dict = Depends(get_current_user)):
     try:
         return QuantoryxService.get_strategies_metadata()
     except Exception as e:
@@ -315,11 +335,12 @@ async def get_strategies():
     response_model=MarketRegimeResponse,
     status_code=status.HTTP_200_OK,
     summary="Get Market Regime Distribution Statistics",
-    description="Runs regime classification and aggregates indicators to yield distribution parameters."
+    description="Runs regime classification and aggregates indicators to yield distribution parameters. (Auth Required)"
 )
 async def get_market_regime(
     symbol: str = Query("EURUSD", description="Instrument symbol to query"),
-    timeframe: str = Query("1H", description="Target timeframe interval")
+    timeframe: str = Query("1H", description="Target timeframe interval"),
+    current_user: dict = Depends(get_current_user)
 ):
     try:
         return QuantoryxService.get_market_regime_distribution(symbol, timeframe)
@@ -330,18 +351,22 @@ async def get_market_regime(
         )
 
 
+# =====================================================================
+# CRITICAL DIAGNOSTIC CONTROL (GET - Admin Access Required Only)
+# =====================================================================
+
 @router.get(
     "/system-health",
     response_model=SystemHealthResponse,
     status_code=status.HTTP_200_OK,
     summary="Get Live System Health Diagnostics",
-    description="Executes a system diagnostic pass checking imports, scanning AST codes, and validating output schemas."
+    description="Executes a system diagnostic pass checking imports, scanning AST codes, and validating output schemas. (Admin Only)"
 )
-async def get_system_health():
+async def get_system_health(current_user: dict = Depends(get_current_admin_user)):
     try:
         return QuantoryxService.run_system_health_validator()
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to run health validator suite: {str(e)}"
-)
+                                                              ) 
