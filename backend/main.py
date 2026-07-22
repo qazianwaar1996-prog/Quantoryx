@@ -3,8 +3,8 @@
 Quantoryx — FastAPI Backend Application Entry Point.
 
 This module initializes the FastAPI application, maps CORS policies,
-attaches request middleware, binds exception handlers, and configures Swagger,
-OpenAPI, and ReDoc documentation systems.
+attaches request middleware, binds exception handlers, registers both the 
+core trading API and authentication router, and configures documentation.
 """
 
 import os
@@ -22,6 +22,7 @@ if PROJECT_ROOT not in sys.path:
 import config
 from utils.logging_config import get_logger
 from backend.api.endpoints import router as core_router
+from backend.api.auth_endpoints import router as auth_router
 from backend.middleware.logging_middleware import QuantoryxLoggingMiddleware
 
 # Initialize centralized logger
@@ -34,7 +35,9 @@ app = FastAPI(
         f"Production-ready backend API service for the {config.SYSTEM_NAME} trading engine.\n\n"
         "Provides REST interfaces for market-regime detection, walk-forward validation, "
         "hyper-parameter optimization, cognitive AI strategy selection, paper-trading execution, "
-        "and unified dashboard metrics visualization."
+        "and unified dashboard metrics visualization.\n\n"
+        "**Phase 2 Security Updates Active:** JWT bearer authentication, Role-Based Access Control, "
+        "profile management, credential modification, and rate-limiting gateways are active."
     ),
     version=config.VERSION,
     docs_url="/docs",      # Interactive Swagger UI endpoint
@@ -43,7 +46,7 @@ app = FastAPI(
 )
 
 # =====================================================================
-# CORS MIDDLEWARE POLICY
+# CORS MIDDLEWARE & SECURITY HEADERS POLICY
 # =====================================================================
 app.add_middleware(
     CORSMiddleware,
@@ -52,6 +55,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_security_headers_middleware(request: Request, call_next):
+    """
+    HTTP middleware introducing modern, strict security response headers.
+    """
+    response = await call_next(request)
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
+    return response
+
 
 # =====================================================================
 # CUSTOM LOGGING MIDDLEWARE
@@ -128,6 +146,10 @@ async def shutdown_event():
 # =====================================================================
 # ROUTER REGISTRATION
 # =====================================================================
+# Register identity and authentication routes
+app.include_router(auth_router, prefix="/api")
+
+# Register core analysis and simulation routes
 app.include_router(core_router, prefix="/api")
 
 
