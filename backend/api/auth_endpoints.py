@@ -2,14 +2,14 @@
 """
 Quantoryx — Authentication Endpoints Router Module.
 
-This module maps standard HTTP authorization operations (registration, login,
-refresh tokens, logout, profile reading, profile updating, and credential modifications)
-to underlying services, enforcing rate limits and session scopes.
+This module maps standard HTTP authorization operations to underlying services,
+enforcing rate limits, database transactions, and session scopes.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
-from backend.api.deps import check_rate_limit, get_current_user
+from backend.api.deps import check_rate_limit, get_current_user, get_db
 from backend.schemas.auth_schemas import (
     GenericAuthMessageResponse,
     PasswordChangeRequest,
@@ -37,9 +37,12 @@ logger = get_logger("backend.api.auth")
     summary="Register New User Account",
     description="Registers a new platform user profile. Subject to active API rate limits."
 )
-async def post_register(payload: UserRegisterRequest):
+async def post_register(
+    payload: UserRegisterRequest,
+    db: Session = Depends(get_db)
+):
     try:
-        user = UserService.register_user(payload)
+        user = UserService.register_user(payload, db=db)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -64,9 +67,12 @@ async def post_register(payload: UserRegisterRequest):
     summary="User Session Login",
     description="Verifies login credentials and issues signed access and refresh tokens."
 )
-async def post_login(payload: UserLoginRequest):
+async def post_login(
+    payload: UserLoginRequest,
+    db: Session = Depends(get_db)
+):
     try:
-        user = UserService.authenticate_user(payload.username, payload.password)
+        user = UserService.authenticate_user(payload.username, payload.password, db=db)
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -100,7 +106,10 @@ async def post_login(payload: UserLoginRequest):
     summary="Exchange Refresh Token",
     description="Validates long-lived refresh tokens to issue active short-lived access credentials."
 )
-async def post_refresh(payload: RefreshTokenRequest):
+async def post_refresh(
+    payload: RefreshTokenRequest,
+    db: Session = Depends(get_db)
+):
     claims = SecurityService.verify_token(payload.refresh_token, expected_type="refresh")
     if not claims:
         raise HTTPException(
@@ -109,14 +118,14 @@ async def post_refresh(payload: RefreshTokenRequest):
         )
         
     user_id = claims.get("sub")
-    if not user_id or UserService.is_refresh_token_revoked(user_id, payload.refresh_token):
+    if not user_id or UserService.is_refresh_token_revoked(user_id, payload.refresh_token, db=db):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="The refresh token has been revoked."
         )
         
     # Verify user profile still exists and remains active
-    user = UserService.get_user_by_id(user_id)
+    user = UserService.get_user_by_id(user_id, db=db)
     if not user or not user.get("is_active", True):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -128,7 +137,7 @@ async def post_refresh(payload: RefreshTokenRequest):
     new_refresh = SecurityService.create_refresh_token(token_data)
     
     # Revoke previous refresh token to prevent reuse (Token Rotation)
-    UserService.revoke_refresh_token(user_id, payload.refresh_token)
+    UserService.revoke_refresh_token(user_id, payload.refresh_token, db=db)
 
     return {
         "access_token": new_access,
@@ -146,10 +155,11 @@ async def post_refresh(payload: RefreshTokenRequest):
 )
 async def post_logout(
     payload: RefreshTokenRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     # Revoke target token
-    UserService.revoke_refresh_token(current_user["id"], payload.refresh_token)
+    UserService.revoke_refresh_token(current_user["id"], payload.refresh_token, db=db)
     return {
         "status": "SUCCESS",
         "message": "User session has been closed successfully. Refresh token revoked."
@@ -176,10 +186,11 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 )
 async def put_profile(
     payload: UserProfileUpdateRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     try:
-        updated_user = UserService.update_user_profile(current_user["id"], payload)
+        updated_user = UserService.update_user_profile(current_user["id"], payload, db=db)
         if not updated_user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -205,10 +216,11 @@ async def put_profile(
 )
 async def post_change_password(
     payload: PasswordChangeRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     try:
-        success = UserService.change_user_password(current_user["id"], payload)
+        success = UserService.change_user_password(current_user["id"], payload, db=db)
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
