@@ -11,37 +11,50 @@ Once the server is running, the interactive documentation interfaces can be acce
 
 ## Endpoint Index
 
-### System Diagnostics
+### User Identity & Access Control (Public / Rate-Limited)
+* [`POST /api/auth/register`](#post-apiauthregister) — Register a new platform user profile.
+* [`POST /api/auth/login`](#post-apiauthlogin) — Authenticate login credentials and obtain access tokens.
+* [`POST /api/auth/refresh`](#post-apiauthrefresh) — Exchange expired access credentials using refresh tokens.
+* [`POST /api/auth/logout`](#post-apiauthlogout) — Terminate user session and revoke refresh tokens.
+* [`GET /api/auth/me`](#get-apiauthme) — Fetch the authenticated active user profile.
+* [`PUT /api/auth/profile`](#put-apiauthprofile) — Update metadata elements on the current profile.
+* [`POST /api/auth/change-password`](#post-apiauthchange-password) — Modify password credentials.
+
+### System Diagnostics (Public)
 * [`GET /api/health`](#get-apihealth) — Retrieve service operational uptime and timestamp parameters.
 * [`GET /api/version`](#get-apiversion) — Retrieve framework metadata version indicators.
 * [`GET /api/status`](#get-apistatus) — Retrieve system constants and active environment statuses.
 
-### Simulation & Analysis
+### Simulation & Analysis (Auth Required)
 * [`POST /api/backtest`](#post-apibacktest) — Simulate a single-strategy backtest run.
 * [`POST /api/optimize`](#post-apioptimize) — Run parameter optimization sweeps on price histories.
 * [`POST /api/walk-forward`](#post-apiwalk-forward) — Run rolling walk-forward validation slices.
 * [`POST /api/paper-trading`](#post-apipaper-trading) — Run step-by-step account leverage/spread simulators.
-* [`POST /api/ai-analysis`](#post-apiai-analysis) — Nominate a champion model using cognitive selections.
+* [`POST /api/ai-analysis`](#post-apiai-analysis) — Nominate a champion model using cognitive AI selections.
 
-### Analytics & Reports
+### Analytics & Reports (Auth Required)
 * [`GET /api/dashboard`](#get-apidashboard) — Retrieve aggregated session overview metrics.
 * [`GET /api/portfolio`](#get-apiportfolio) — Retrieve cash history and drawdown equity curves.
 * [`GET /api/reports`](#get-apireports) — Index output files and document locations.
 * [`GET /api/strategies`](#get-apistrategies) — Inspect registered strategy parameter profiles.
 * [`GET /api/market-regime`](#get-apimarket-regime) — Inspect historical market regime distribution densities.
+
+### System Control (Admin Clearance Required)
 * [`GET /api/system-health`](#get-apisystem-health) — Run comprehensive code, validation, and directory health audits.
 
 ---
 
-## System Diagnostics
+## User Identity & Access Control
 
-### GET `/api/health`
-Checks the active server health and uptime metrics.
+### POST `/api/auth/register`
+Creates a new user profile on the platform. Username and email must be unique. Subject to sliding-window rate limits.
 
-* **Response (200 OK):**
+* **Request Body:**
   ```json
   {
-    "status": "OK",
-    "timestamp": "2026-07-22T12:00:00Z",
-    "uptime_seconds": 124.55
+    "username": "trader1",
+    "email": "trader1@quantoryx.com",
+    "password": "SecurePassword123",
+    "full_name": "Senior Quant Trader",
+    "role": "user"
   }
