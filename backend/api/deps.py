@@ -3,15 +3,24 @@
 Quantoryx — Security Dependency Injection Module.
 
 This module implements FastAPI dependencies for extracting bearer tokens from HTTP headers,
-verifying JWT payloads, enforcing RBAC access levels (User vs Admin), and implementing
-a lightweight, sliding-window in-memory rate limiter per client IP address.
+verifying JWT payloads, enforcing RBAC access levels, and providing transactional
+SQLAlchemy database sessions across endpoints.
 """
 
+import os
+import sys
 import time
-from typing import Dict, Tuple, Optional
+from typing import Any, Dict, Optional
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.orm import Session
 
+# Ensure root is in path for imports
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from backend.database.connection import get_db
 from backend.services.security_service import SecurityService
 from backend.services.user_service import UserService
 from utils.logging_config import get_logger
@@ -25,7 +34,6 @@ security_scheme = HTTPBearer(auto_error=False)
 # =====================================================================
 # IN-MEMORY RATE LIMITER CONFIGURATION
 # =====================================================================
-# Sliding window: limits requests per client IP to prevent brute-force attacks
 RATE_LIMIT_WINDOW_SECONDS = 60
 RATE_LIMIT_MAX_REQUESTS = 100
 _IP_RATE_TRACKER: Dict[str, list] = {}
@@ -61,7 +69,8 @@ def check_rate_limit(request: Request) -> None:
 # =====================================================================
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+    db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
     """
     Dependency that extracts, verifies, and resolves the currently active user profile.
@@ -95,7 +104,8 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = UserService.get_user_by_id(user_id)
+    # Check database persistence layers passing current active database session
+    user = UserService.get_user_by_id(user_id, db=db)
     if not user:
         logger.warning("Authentication failed: Registered user matching ID %s was not resolved.", user_id)
         raise HTTPException(
