@@ -1,10 +1,21 @@
 # paper_trading/paper_engine.py
+"""
+paper_trading/paper_engine.py
+
+Simulates a live-trading desk execution environment.
+Supports leverage, spread, margin requirements, liquidation thresholds,
+and records account financial metrics step-by-step.
+Optionally integrates with RDBMS to persist active positions and notify users.
+"""
 
 import os
 import pandas as pd
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
+from sqlalchemy.orm import Session
+
 from risk.risk_manager import RiskManager
 from market_regime.detector import MarketRegimeDetector
+from backend.services.portfolio_services import PortfolioService
 
 
 class PaperTradingEngine:
@@ -20,7 +31,8 @@ class PaperTradingEngine:
         spread_pct: float = 0.0002,       # 0.02% typical average spread (2 pips equivalent)
         risk_manager: RiskManager = None,
         margin_call_level: float = 100.0, # Margin call at 100% margin level
-        stop_out_level: float = 50.0      # Auto-liquidation at 50% margin level
+        stop_out_level: float = 50.0,     # Auto-liquidation at 50% margin level
+        user_id: Optional[str] = None     # Optional user ID for database tracking
     ):
         self.balance = starting_balance
         self.equity = starting_balance
@@ -28,6 +40,7 @@ class PaperTradingEngine:
         self.spread_pct = spread_pct
         self.margin_call_level = margin_call_level
         self.stop_out_level = stop_out_level
+        self.user_id = user_id
         
         # Integration parameters
         self.risk_manager = risk_manager if risk_manager is not None else RiskManager()
@@ -42,8 +55,11 @@ class PaperTradingEngine:
         self.free_margin = starting_balance
         self.margin_level = float('inf')  # Equity / Used Margin * 100
         self.daily_pnl_tracker = 0.0
+        
+        # Alerts state
+        self.has_sent_margin_warning = False
 
-    def process_bar(self, timestamp: Any, row: pd.Series, regime: str):
+    def process_bar(self, timestamp: Any, row: pd.Series, regime: str, db: Optional[Session] = None):
         """
         Processes a single historical bar (tick simulation) to update unrealized P/L,
         evaluate stop/target hits, and check margin limits.
@@ -59,7 +75,6 @@ class PaperTradingEngine:
             is_closed = False
             exit_price = close_price
             reason = "Signal Exit"
-            direction_mult = 1 if pos["direction"] == "LONG" else -1
             
             # Simulated bid/ask boundaries for order fills using spread
             pos_spread_cost = pos["entry_price"] * (self.spread_pct / 2.0)
@@ -85,17 +100,17 @@ class PaperTradingEngine:
                 reason = "Take Profit"
 
             if is_closed:
-                self._execute_close(pos, exit_price, reason, time_str)
+                self._execute_close(pos, exit_price, reason, time_str, db=db)
             else:
                 still_active.append(pos)
                 
         self.active_positions = still_active
 
         # 2. Recalculate Equity, Margin & Check Liquidation
-        self._recalculate_margins(close_price)
+        self._recalculate_margins(close_price, db=db)
         
         if self.margin_level <= self.stop_out_level:
-            self._liquidate_all_positions(close_price, time_str, "Stop Out / Liquidation")
+            self._liquidate_all_positions(close_price, time_str, "Stop Out / Liquidation", db=db)
             
         # 3. Log step snapshot
         self.account_history.append({
@@ -117,7 +132,8 @@ class PaperTradingEngine:
         stop_loss_pct: float,
         rr_ratio: float,
         timestamp: Any,
-        regime: str
+        regime: str,
+        db: Optional[Session] = None
     ) -> bool:
         """
         Places a virtual Buy/Sell order after checking margin and risk approvals.
@@ -174,14 +190,38 @@ class PaperTradingEngine:
             "entry_regime": regime
         }
         
+        # Optionally persist the active position in the database (v4.5)
+        if db is not None and self.user_id is not None:
+            db_pos = PortfolioService.persist_open_position(
+                user_id=self.user_id,
+                symbol=symbol,
+                direction=direction,
+                entry_price=execution_price,
+                size=quantity,
+                stop_loss=sl,
+                take_profit=tp,
+                required_margin=required_margin,
+                entry_regime=regime,
+                db=db
+            )
+            if db_pos:
+                position["db_id"] = db_pos.id
+
         self.active_positions.append(position)
         # Track allocation in the same (margin) unit used by the exposure gate.
         self.risk_manager.register_trade_open(symbol, required_margin)
-        self._recalculate_margins(current_price)
+        self._recalculate_margins(current_price, db=db)
         
         return True
 
-    def _execute_close(self, position: Dict[str, Any], exit_price: float, reason: str, timestamp_str: str):
+    def _execute_close(
+        self, 
+        position: Dict[str, Any], 
+        exit_price: float, 
+        reason: str, 
+        timestamp_str: str, 
+        db: Optional[Session] = None
+    ):
         """
         Internal trade finalization, updating ledger balance and resetting risk exposures.
         """
@@ -208,13 +248,21 @@ class PaperTradingEngine:
         
         self.trade_logs.append(trade_record)
 
+        # Optionally remove the position from active holdings in database (v4.5)
+        if db is not None and self.user_id is not None and "db_id" in position:
+            PortfolioService.remove_closed_position(
+                user_id=self.user_id,
+                position_id=position["db_id"],
+                db=db
+            )
+
         # Notify risk manager of close, releasing the same margin allocation
         # that was registered on open.
         self.risk_manager.register_trade_close(
             position["symbol"], position.get("required_margin", 0.0), pnl
         )
 
-    def _recalculate_margins(self, current_price: float):
+    def _recalculate_margins(self, current_price: float, db: Optional[Session] = None):
         """
         Recalculates floating Equity, Margin usage, Free Margin, and Margin levels.
         """
@@ -235,18 +283,48 @@ class PaperTradingEngine:
         else:
             self.margin_level = float('inf')
 
-    def _liquidate_all_positions(self, current_price: float, timestamp_str: str, reason: str):
+        # Trigger Margin Call alerts (v4.5)
+        if self.margin_level <= self.margin_call_level:
+            if not self.has_sent_margin_warning:
+                if db is not None and self.user_id is not None:
+                    PortfolioService.dispatch_notification(
+                        user_id=self.user_id,
+                        title="Margin Call Alert",
+                        message=f"Critical: Margin level fell to {self.margin_level:.1f}%. Risk liquidation is imminent.",
+                        db=db
+                    )
+                self.has_sent_margin_warning = True
+        else:
+            # Reset warning flag if margin recovers
+            self.has_sent_margin_warning = False
+
+    def _liquidate_all_positions(
+        self, 
+        current_price: float, 
+        timestamp_str: str, 
+        reason: str, 
+        db: Optional[Session] = None
+    ):
         """
         Force closes all open inventory when Margin constraints are breached.
         """
+        # Trigger Stop-Out Liquidation Notification (v4.5)
+        if db is not None and self.user_id is not None:
+            PortfolioService.dispatch_notification(
+                user_id=self.user_id,
+                title="Stop Out Liquidation Triggered",
+                message=f"Account liquidated. Floating margin level fell below stop out limit of {self.stop_out_level}%.",
+                db=db
+            )
+
         for pos in self.active_positions:
             # Spread cost factored into liquidations
             spread_cost = pos["entry_price"] * (self.spread_pct / 2.0)
             exit_price = current_price - spread_cost if pos["direction"] == "LONG" else current_price + spread_cost
-            self._execute_close(pos, exit_price, reason, timestamp_str)
+            self._execute_close(pos, exit_price, reason, timestamp_str, db=db)
             
         self.active_positions = []
-        self._recalculate_margins(current_price)
+        self._recalculate_margins(current_price, db=db)
 
     def reset_daily_tracker(self):
         """
