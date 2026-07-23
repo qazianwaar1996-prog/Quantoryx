@@ -3,8 +3,8 @@
 Quantoryx — FastAPI Backend Application Entry Point.
 
 This module initializes the FastAPI application, maps CORS policies,
-attaches request middleware, binds exception handlers, registers both the 
-core trading API, authentication, and portfolio routers, and configures documentation.
+attaches request middleware, binds exception handlers, registers core trading,
+authentication, portfolio, and WebSocket routers, and configures documentation.
 It runs automatic database initialization and bootstrap checks on startup.
 """
 
@@ -25,6 +25,7 @@ from utils.logging_config import get_logger
 from backend.api.endpoints import router as core_router
 from backend.api.auth_endpoints import router as auth_router
 from backend.api.portfolio_endpoints import router as portfolio_router
+from backend.api.ws_endpoints import router as ws_router
 from backend.middleware.logging_middleware import QuantoryxLoggingMiddleware
 
 # Initialize centralized logger
@@ -161,6 +162,9 @@ app.include_router(auth_router, prefix="/api")
 
 # Register portfolio, watchlist, and settings routes
 app.include_router(portfolio_router, prefix="/api")
+
+# Register real-time WebSocket routes
+app.include_router(ws_router, prefix="/api")
 
 # Register core analysis and simulation routes
 app.include_router(core_router, prefix="/api")
