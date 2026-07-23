@@ -27,6 +27,7 @@ from backend.schemas.auth_schemas import (
     UserProfileUpdateRequest,
     UserRegisterRequest
 )
+from backend.schemas.api_schemas import UserSettingsUpdateRequest
 from backend.services.security_service import SecurityService
 from utils.logging_config import get_logger
 
@@ -340,4 +341,62 @@ class UserService:
             return True
         finally:
             if db is None:
+                session.close()
+
+    # =====================================================================
+    # v4.5 USER SETTINGS MANAGEMENT WORKFLOWS
+    # =====================================================================
+
+    @classmethod
+    def get_user_settings(cls, user_id: str, db: Session = None) -> Optional[UserSettings]:
+        """Retrieves operational configurations matching a target user ID."""
+        session = db if db is not None else SessionLocal()
+        try:
+            return settings_repo.get_by_user_id(session, user_id)
+        finally:
+            if db is None:
+                session.close()
+
+    @classmethod
+    def update_user_settings(
+        cls, 
+        user_id: str, 
+        update_request: UserSettingsUpdateRequest, 
+        db: Session = None
+    ) -> Optional[UserSettings]:
+        """Modifies customizable operational configurations per user profile."""
+        standalone = db is None
+        session = db if db is not None else SessionLocal()
+
+        try:
+            settings_obj = settings_repo.get_by_user_id(session, user_id)
+            if not settings_obj:
+                return None
+
+            # Map inputs to database columns
+            update_data = update_request.dict(exclude_unset=True)
+            updated_settings = settings_repo.update(session, db_obj=settings_obj, obj_in=update_data)
+
+            # Log settings modification audit event
+            audit_repo.log_event(
+                session, 
+                user_id=user_id, 
+                action="SETTINGS_UPDATE", 
+                entity_type="user_settings", 
+                entity_id=str(updated_settings.id),
+                details="User updated system default preference parameters"
+            )
+
+            if standalone:
+                session.commit()
+                session.refresh(updated_settings)
+
+            return updated_settings
+        except Exception as e:
+            if standalone:
+                session.rollback()
+            logger.error("User settings update transactional error: %s", str(e))
+            return None
+        finally:
+            if standalone:
                 session.close()
