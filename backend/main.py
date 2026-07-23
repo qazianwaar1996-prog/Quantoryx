@@ -5,6 +5,7 @@ Quantoryx — FastAPI Backend Application Entry Point.
 This module initializes the FastAPI application, maps CORS policies,
 attaches request middleware, binds exception handlers, registers both the 
 core trading API and authentication router, and configures documentation.
+It runs automatic database initialization and bootstrap checks on startup.
 """
 
 import os
@@ -36,8 +37,8 @@ app = FastAPI(
         "Provides REST interfaces for market-regime detection, walk-forward validation, "
         "hyper-parameter optimization, cognitive AI strategy selection, paper-trading execution, "
         "and unified dashboard metrics visualization.\n\n"
-        "**Phase 2 Security Updates Active:** JWT bearer authentication, Role-Based Access Control, "
-        "profile management, credential modification, and rate-limiting gateways are active."
+        "**Phase 3 Database Persistence Active:** SQLite relational database, SQLAlchemy ORM models, "
+        "reusable repository pattern, and secure transaction contexts are operational."
     ),
     version=config.VERSION,
     docs_url="/docs",      # Interactive Swagger UI endpoint
@@ -125,16 +126,24 @@ async def value_error_exception_handler(request: Request, exc: ValueError):
 
 @app.on_event("startup")
 async def startup_event():
-    """Triggers workspace initialization during system startup."""
+    """Triggers workspace initialization and database startup checks."""
     logger.info("Initializing %s API service workspace directories...", config.SYSTEM_NAME)
     try:
         from utils.path_manager import PathManager
         PathManager.initialize_workspace()
+        
+        # Initialize and bootstrap the database layer
+        from backend.database.connection import initialize_database
+        if not initialize_database():
+            logger.critical("Database startup checks failed. System may operate in degraded state.")
+        else:
+            logger.info("Database startup checks completed successfully.")
+
         logger.info("%s API service successfully initialized and operational.", config.SYSTEM_NAME)
         logger.info("  - Swagger Documentation: http://127.0.0.1:8000/docs")
         logger.info("  - ReDoc Documentation:   http://127.0.0.1:8000/redoc")
     except Exception as e:
-        logger.critical("Workspace initialization failed on startup: %s", str(e), exc_info=True)
+        logger.critical("Initialization failed on startup: %s", str(e), exc_info=True)
 
 
 @app.on_event("shutdown")
