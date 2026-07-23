@@ -7,14 +7,18 @@ ensuring clean imports for the repository and service layers.
 """
 
 from backend.models.models import (
-    AuditLog,
-    SavedAIAnalysis,
-    SavedBacktest,
-    SavedOptimization,
-    SavedReport,
-    SavedStrategy,
     User,
     UserSettings,
+    SavedStrategy,
+    SavedBacktest,
+    SavedOptimization,
+    SavedAIAnalysis,
+    SavedReport,
+    ActivePosition,
+    Watchlist,
+    WatchlistItem,
+    Notification,
+    AuditLog,
 )
 
 __all__ = [
@@ -25,5 +29,9 @@ __all__ = [
     "SavedOptimization",
     "SavedAIAnalysis",
     "SavedReport",
+    "ActivePosition",
+    "Watchlist",
+    "WatchlistItem",
+    "Notification",
     "AuditLog",
 ]
