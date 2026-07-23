@@ -59,7 +59,14 @@ class PipelineValidator:
             ("risk.risk_manager", "RiskManager"),
             ("portfolio.portfolio_manager", "PortfolioManager"),
             ("paper_trading.paper_engine", "PaperTradingEngine"),
-            ("ai_engine.decision_engine", "AIDecisionEngine")
+            ("ai_engine.decision_engine", "AIDecisionEngine"),
+            
+            # v4.5, v5.0, v6.0 Core Backend Integrations (Added in audit updates)
+            ("backend.services.portfolio_services", "PortfolioService"),
+            ("backend.api.portfolio_endpoints", "router"),
+            ("backend.api.ws_endpoints", "router"),
+            ("backend.tasks.celery_app", "celery_app"),
+            ("backend.tasks.quant_tasks", "run_optimization_task")
         ]
 
         all_passed = True
@@ -288,4 +295,4 @@ class PipelineValidator:
 
 def pd_read_header(filepath: str) -> Any:
     import pandas as pd
-    return pd.read_csv(filepath, nrows=0) 
+    return pd.read_csv(filepath, nrows=0)
