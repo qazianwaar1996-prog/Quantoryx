@@ -63,6 +63,24 @@ async def get_health():
 
 
 @router.get(
+    "/database-health",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Get Database Connection Health",
+    description="Performs a live ping check against the database connection pool. (Public Endpoint)"
+)
+async def get_database_health():
+    from backend.database.connection import check_db_health
+    healthy, msg = check_db_health()
+    if not healthy:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=msg
+        )
+    return {"status": "HEALTHY", "message": msg}
+
+
+@router.get(
     "/version",
     response_model=VersionResponse,
     status_code=status.HTTP_200_OK,
@@ -369,4 +387,4 @@ async def get_system_health(current_user: dict = Depends(get_current_admin_user)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to run health validator suite: {str(e)}"
-                                                              ) 
+        )
