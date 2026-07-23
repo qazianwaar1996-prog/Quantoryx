@@ -9,9 +9,10 @@ using secure dependency injection authentication gates.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
 
 # Import auth dependencies
-from backend.api.deps import get_current_user, get_current_admin_user
+from backend.api.deps import get_current_user, get_current_admin_user, get_db
 
 # Import schemas and services
 from backend.schemas.api_schemas import (
@@ -224,14 +225,17 @@ async def post_walk_forward(
 )
 async def post_paper_trading(
     payload: PaperTradingRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     try:
         result = QuantoryxService.run_paper_trading_simulator(
             symbol=payload.symbol,
             capital=payload.capital,
             leverage=payload.leverage,
-            spread=payload.spread
+            spread=payload.spread,
+            user_id=current_user["id"],
+            db=db
         )
         return result
     except ValueError as ve:
@@ -387,4 +391,4 @@ async def get_system_health(current_user: dict = Depends(get_current_admin_user)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to run health validator suite: {str(e)}"
-        )
+)
