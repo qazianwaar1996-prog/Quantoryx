@@ -18,6 +18,10 @@ from backend.models.models import (
     SavedOptimization,
     SavedAIAnalysis,
     SavedReport,
+    ActivePosition,
+    Watchlist,
+    WatchlistItem,
+    Notification,
     AuditLog,
 )
 from backend.repositories.base import BaseRepository
@@ -111,6 +115,70 @@ class SavedReportRepository(BaseRepository[SavedReport]):
         return db.query(SavedReport).filter(SavedReport.user_id == user_id).all()
 
 
+# =====================================================================
+# v4.5 REPOSITORIES FOR NEW MODELS
+# =====================================================================
+
+class ActivePositionRepository(BaseRepository[ActivePosition]):
+    """Repository handling currently active open trading positions."""
+
+    def __init__(self):
+        super().__init__(ActivePosition)
+
+    def get_by_user(self, db: Session, user_id: str) -> List[ActivePosition]:
+        """Fetches all active positions open for a target user."""
+        return db.query(ActivePosition).filter(ActivePosition.user_id == user_id).all()
+
+    def get_by_user_and_symbol(self, db: Session, user_id: str, symbol: str) -> List[ActivePosition]:
+        """Fetches active positions matching both user and currency pair context."""
+        return db.query(ActivePosition).filter(
+            ActivePosition.user_id == user_id,
+            ActivePosition.symbol == symbol
+        ).all()
+
+
+class WatchlistRepository(BaseRepository[Watchlist]):
+    """Repository handling user-defined watchlists."""
+
+    def __init__(self):
+        super().__init__(Watchlist)
+
+    def get_by_user(self, db: Session, user_id: str) -> List[Watchlist]:
+        """Fetches watchlists associated with a target user."""
+        return db.query(Watchlist).filter(Watchlist.user_id == user_id).all()
+
+
+class WatchlistItemRepository(BaseRepository[WatchlistItem]):
+    """Repository handling individual items nested inside watchlists."""
+
+    def __init__(self):
+        super().__init__(WatchlistItem)
+
+    def get_by_watchlist(self, db: Session, watchlist_id: int) -> List[WatchlistItem]:
+        """Fetches all active item tickers assigned to a single watchlist."""
+        return db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == watchlist_id).all()
+
+
+class NotificationRepository(BaseRepository[Notification]):
+    """Repository handling system-wide risk and operational notifications."""
+
+    def __init__(self):
+        super().__init__(Notification)
+
+    def get_unread_by_user(self, db: Session, user_id: str) -> List[Notification]:
+        """Fetches only unread system warning and operational notices."""
+        return db.query(Notification).filter(
+            Notification.user_id == user_id,
+            Notification.is_read == False
+        ).order_by(Notification.created_at.desc()).all()
+
+    def get_all_by_user(self, db: Session, user_id: str, limit: int = 50) -> List[Notification]:
+        """Fetches historical notifications for a user up to a specified limit."""
+        return db.query(Notification).filter(
+            Notification.user_id == user_id
+        ).order_by(Notification.created_at.desc()).limit(limit).all()
+
+
 class AuditLogRepository(BaseRepository[AuditLog]):
     """Repository handling operational system audit logging."""
 
@@ -155,4 +223,11 @@ backtest_repo = SavedBacktestRepository()
 optimization_repo = SavedOptimizationRepository()
 ai_analysis_repo = SavedAIAnalysisRepository()
 report_repo = SavedReportRepository()
+
+# v4.5 Singleton Repositories
+position_repo = ActivePositionRepository()
+watchlist_repo = WatchlistRepository()
+watchlist_item_repo = WatchlistItemRepository()
+notification_repo = NotificationRepository()
+
 audit_repo = AuditLogRepository()
