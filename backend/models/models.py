@@ -50,6 +50,11 @@ class User(Base):
     ai_analyses = relationship("SavedAIAnalysis", back_populates="user", cascade="all, delete-orphan")
     reports = relationship("SavedReport", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
+    
+    # v4.5 Relational Bindings
+    active_positions = relationship("ActivePosition", back_populates="user", cascade="all, delete-orphan")
+    watchlists = relationship("Watchlist", back_populates="user", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserSettings(Base):
@@ -151,11 +156,10 @@ class SavedAIAnalysis(Base):
     user = relationship("User", back_populates="ai_analyses")
 
 
-class SavedReport(BaseModel):
+class SavedReport(Base):
     """Stores metadata of CSV outputs and ledger files compiled on disk."""
     __tablename__ = "saved_reports"
 
-    # We map this class using Base to keep base definitions correct
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     filename = Column(String(100), nullable=False)
@@ -167,9 +171,70 @@ class SavedReport(BaseModel):
     user = relationship("User", back_populates="reports")
 
 
-# Inject Base metadata explicitly to allow SavedReport Base binding correctly
-# SQLAlchemy requires manual Base re-association if name classes are modified
-SavedReport = type('SavedReport', (Base,), dict(SavedReport.__dict__))
+# =====================================================================
+# v4.5 PORTFOLIO ACTIVE STATE, WATCHLIST, & NOTIFICATION SCHEMAS
+# =====================================================================
+
+class ActivePosition(Base):
+    """Stores currently open trading positions (Real-time Holdings State)."""
+    __tablename__ = "active_positions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    symbol = Column(String(20), nullable=False)
+    direction = Column(String(10), nullable=False)  # LONG or SHORT
+    entry_time = Column(DateTime, nullable=False, default=datetime.utcnow)
+    entry_price = Column(Float, nullable=False)
+    size = Column(Float, nullable=False)  # Quantity of units
+    stop_loss = Column(Float, nullable=False)
+    take_profit = Column(Float, nullable=False)
+    required_margin = Column(Float, nullable=False)
+    entry_regime = Column(String(50), nullable=True)
+
+    # Relational bindings
+    user = relationship("User", back_populates="active_positions")
+
+
+class Watchlist(Base):
+    """User watchlists grouping target symbols."""
+    __tablename__ = "watchlists"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(50), nullable=False, default="Default")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relational bindings
+    user = relationship("User", back_populates="watchlists")
+    items = relationship("WatchlistItem", back_populates="watchlist", cascade="all, delete-orphan")
+
+
+class WatchlistItem(Base):
+    """Individual symbols added inside a Watchlist."""
+    __tablename__ = "watchlist_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    watchlist_id = Column(Integer, ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False)
+    symbol = Column(String(20), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relational bindings
+    watchlist = relationship("Watchlist", back_populates="items")
+
+
+class Notification(Base):
+    """User-targeted operational and risk warnings."""
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String(100), nullable=False)
+    message = Column(Text, nullable=False)
+    is_read = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    # Relational bindings
+    user = relationship("User", back_populates="notifications")
 
 
 # =====================================================================
