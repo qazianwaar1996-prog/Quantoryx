@@ -333,3 +333,109 @@ class DashboardResponse(BaseModel):
     ai_status: str = Field(..., description="The operating decision execution verdict")
     portfolio_summary: Dict[str, Any] = Field(..., description="Core portfolio metrics overview")
     recent_executed_trades: List[TradeLogEntry] = Field(..., description="Recent transaction ledger listings")
+
+
+# =====================================================================
+# v4.5 USER SETTINGS SCHEMAS
+# =====================================================================
+
+class UserSettingsResponse(BaseModel):
+    """Response model for user settings configuration."""
+    id: int = Field(..., description="The unique row ID of the settings record")
+    user_id: str = Field(..., description="The matching user UUID index")
+    default_symbol: str = Field(..., description="Pre-selected trading instrument ticker")
+    default_timeframe: str = Field(..., description="Pre-selected default chart timeframe")
+    risk_per_trade_pct: float = Field(..., description="Calculated trade-level risk percentage")
+    leverage: float = Field(..., description="Default margin leverage mapping value")
+    spread: float = Field(..., description="Assumed spread multiplier used for backtests")
+    confidence_threshold: float = Field(..., description="Pre-selected confidence limit for execution approval")
+    updated_at: datetime = Field(..., description="The timestamp of the last configuration save")
+
+    class Config:
+        orm_mode = True
+
+
+class UserSettingsUpdateRequest(BaseModel):
+    """Validation structure when updating user operational settings."""
+    default_symbol: Optional[str] = Field(None, max_length=20, description="New default asset symbol")
+    default_timeframe: Optional[str] = Field(None, max_length=10, description="New default timeframe interval")
+    risk_per_trade_pct: Optional[float] = Field(None, ge=0.1, le=10.0, description="Adjusted default risk percentage")
+    leverage: Optional[float] = Field(None, ge=1.0, le=500.0, description="Adjusted operational leverage")
+    spread: Optional[float] = Field(None, ge=0.0, description="Adjusted standard spread cost ratio")
+    confidence_threshold: Optional[float] = Field(None, ge=0.0, le=100.0, description="Adjusted validation threshold")
+
+
+# =====================================================================
+# v4.5 PORTFOLIO HOLDINGS & ALLOCATION SCHEMAS
+# =====================================================================
+
+class ActivePositionResponse(BaseModel):
+    """Response model representing a live, open trading position (Holdings)."""
+    id: int = Field(..., description="Position unique record row ID")
+    user_id: str = Field(..., description="Asset holder user ID")
+    symbol: str = Field(..., description="Traded asset ticker symbol")
+    direction: str = Field(..., description="Current position trend direction (LONG or SHORT)")
+    entry_time: datetime = Field(..., description="Live entry timestamp execution value")
+    entry_price: float = Field(..., description="Base fill execution entry price")
+    size: float = Field(..., description="Total holdings unit volumes")
+    stop_loss: float = Field(..., description="Configured dynamic stop loss trigger level")
+    take_profit: float = Field(..., description="Configured dynamic target profit trigger level")
+    required_margin: float = Field(..., description="Allocated capital leverage margin utilized")
+    entry_regime: Optional[str] = Field(None, description="The identified market context at the time of entry")
+
+    class Config:
+        orm_mode = True
+
+
+# =====================================================================
+# v4.5 WATCHLIST SCHEMAS
+# =====================================================================
+
+class WatchlistItemResponse(BaseModel):
+    """Serialized item nested inside a Watchlist."""
+    id: int = Field(..., description="The unique watchlist item index ID")
+    watchlist_id: int = Field(..., description="The watchlist parent record ID")
+    symbol: str = Field(..., description="The asset symbol")
+    created_at: datetime = Field(..., description="Creation date timestamp")
+
+    class Config:
+        orm_mode = True
+
+
+class WatchlistResponse(BaseModel):
+    """Serialized watchlist containing grouping names and nested item listings."""
+    id: int = Field(..., description="The watchlist unique index ID")
+    user_id: str = Field(..., description="The associated owner user UUID")
+    name: str = Field(..., description="The designated watchlist classification name")
+    created_at: datetime = Field(..., description="The creation timestamp")
+    items: List[WatchlistItemResponse] = Field([], description="The list of nested tracking ticker symbols")
+
+    class Config:
+        orm_mode = True
+
+
+class WatchlistCreateRequest(BaseModel):
+    """Validation structure when instantiating a new Watchlist."""
+    name: str = Field(..., min_length=1, max_length=50, description="Watchlist classification name")
+
+
+class WatchlistItemCreateRequest(BaseModel):
+    """Validation structure when appending a ticker symbol into a Watchlist."""
+    symbol: str = Field(..., min_length=2, max_length=20, description="Ticker symbol to track")
+
+
+# =====================================================================
+# v4.5 NOTIFICATION SCHEMAS
+# =====================================================================
+
+class NotificationResponse(BaseModel):
+    """Response model representing a single warning alert or notice message."""
+    id: int = Field(..., description="The notification unique record index ID")
+    user_id: str = Field(..., description="Target recipient user UUID")
+    title: str = Field(..., description="Short heading summary")
+    message: str = Field(..., description="Detailed message notification string")
+    is_read: bool = Field(..., description="Flag indicating if the user has dismissed the notification")
+    created_at: datetime = Field(..., description="The generation timestamp")
+
+    class Config:
+        orm_mode = True
