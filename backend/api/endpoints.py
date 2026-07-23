@@ -10,6 +10,7 @@ using secure dependency injection authentication gates.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from celery.result import AsyncResult
 
 # Import auth dependencies
 from backend.api.deps import get_current_user, get_current_admin_user, get_db
@@ -22,9 +23,7 @@ from backend.schemas.api_schemas import (
     BacktestRequest,
     BacktestResponse,
     OptimizeRequest,
-    OptimizeResponse,
     WalkForwardRequest,
-    WalkForwardResponse,
     PaperTradingRequest,
     PaperTradingResponse,
     AIAnalysisRequest,
@@ -37,6 +36,8 @@ from backend.schemas.api_schemas import (
     SystemHealthResponse
 )
 from backend.services.quantoryx_service import QuantoryxService
+from backend.tasks.celery_app import celery_app
+from backend.tasks.quant_tasks import run_optimization_task, run_walk_forward_task
 
 # Initialize Router
 router = APIRouter(tags=["Quantoryx Core Engine API"])
@@ -154,48 +155,48 @@ async def post_backtest(
 
 @router.post(
     "/optimize",
-    response_model=OptimizeResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Run Parameter Grid Optimization",
-    description="Sweeps strategy parameters over prices, ranking sets by a target performance metric. (Auth Required)"
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue Parameter Grid Optimization",
+    description="Enqueues a parameter optimization task to run asynchronously in background workers [2]. Returns a Task UUID. (Auth Required)"
 )
 async def post_optimize(
     payload: OptimizeRequest,
     current_user: dict = Depends(get_current_user)
 ):
     try:
-        result = QuantoryxService.run_optimization_sweep(
+        # Deploy as background worker task (v5.0)
+        task = run_optimization_task.delay(
             strategy=payload.strategy,
             symbol=payload.symbol,
             timeframe=payload.timeframe,
-            metric=payload.metric
+            metric=payload.metric,
+            user_id=current_user["id"]
         )
-        return result
-    except ValueError as ve:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Verification failed: {str(ve)}"
-        )
+        return {
+            "task_id": task.id,
+            "status": "QUEUED",
+            "message": "Optimization sweep enqueued successfully."
+        }
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Optimization sweep failed: {str(e)}"
+            detail=f"Failed to queue optimization task: {str(e)}"
         )
 
 
 @router.post(
     "/walk-forward",
-    response_model=WalkForwardResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Run Walk-Forward Validation",
-    description="Executes rolling training (In-Sample) and testing (Out-of-Sample) validation folds. (Auth Required)"
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue Walk-Forward Validation",
+    description="Enqueues a walk-forward validation sweep to run asynchronously in background workers [2]. Returns a Task UUID. (Auth Required)"
 )
 async def post_walk_forward(
     payload: WalkForwardRequest,
     current_user: dict = Depends(get_current_user)
 ):
     try:
-        result = QuantoryxService.run_walk_forward_validation(
+        # Deploy as background worker task (v5.0)
+        task = run_walk_forward_task.delay(
             strategy=payload.strategy,
             symbol=payload.symbol,
             timeframe=payload.timeframe,
@@ -203,16 +204,15 @@ async def post_walk_forward(
             test_days=payload.test_days,
             metric=payload.metric
         )
-        return result
-    except ValueError as ve:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Payload processing error: {str(ve)}"
-        )
+        return {
+            "task_id": task.id,
+            "status": "QUEUED",
+            "message": "Walk-forward validation enqueued successfully."
+        }
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Walk-forward pipeline failed: {str(e)}"
+            detail=f"Failed to queue walk-forward task: {str(e)}"
         )
 
 
@@ -277,6 +277,46 @@ async def post_ai_analysis(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"AI selection calculations failed: {str(e)}"
+        )
+
+
+# =====================================================================
+# TASK TRACKING POLL ENPOINT (v5.0 Addition)
+# =====================================================================
+
+@router.get(
+    "/tasks/{task_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Get Asynchronous Task Status",
+    description="Queries the Celery result backend for progress, state, and outputs of background tasks [2]. (Auth Required)"
+)
+async def get_task_status(
+    task_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    try:
+        # Query Celery state via AsyncResult (v5.0)
+        async_result = AsyncResult(task_id, app=celery_app)
+        
+        response_data = {
+            "task_id": task_id,
+            "status": async_result.status,
+            "result": None,
+            "error": None
+        }
+
+        if async_result.status == "SUCCESS":
+            response_data["result"] = async_result.result
+        elif async_result.status == "FAILURE":
+            response_data["error"] = str(async_result.result)
+        elif async_result.status == "PROGRESS":
+            response_data["result"] = async_result.info  # contains progress metadata dictionary
+
+        return response_data
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to query task status: {str(e)}"
         )
 
 
@@ -391,4 +431,4 @@ async def get_system_health(current_user: dict = Depends(get_current_admin_user)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to run health validator suite: {str(e)}"
-)
+        )
