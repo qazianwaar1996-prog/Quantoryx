@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
+from sqlalchemy.orm import Session
 
 # Core Quantoryx integrations
 import config
@@ -93,7 +94,7 @@ class QuantoryxService:
 
     @classmethod
     def run_backtest_simulation(
-        self,
+        cls,
         strategy: str,
         symbol: str,
         timeframe: str,
@@ -102,7 +103,7 @@ class QuantoryxService:
         custom_params: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Executes a single strategy backtest and returns calculated KPIs."""
-        df = self._load_data_safely(symbol, timeframe)
+        df = cls._load_data_safely(symbol, timeframe)
 
         # Build parameter package safely, overlaying defaults and inputs
         merged_params = {}
@@ -135,14 +136,14 @@ class QuantoryxService:
 
     @classmethod
     def run_optimization_sweep(
-        self,
+        cls,
         strategy: str,
         symbol: str,
         timeframe: str,
         metric: str
     ) -> Dict[str, Any]:
         """Executes grid parameter optimization sweep and returns rankings."""
-        df = self._load_data_safely(symbol, timeframe)
+        df = cls._load_data_safely(symbol, timeframe)
 
         # Instantiate optimizer engine
         optimizer = OptimizerEngine(
@@ -193,7 +194,7 @@ class QuantoryxService:
 
     @classmethod
     def run_walk_forward_validation(
-        self,
+        cls,
         strategy: str,
         symbol: str,
         timeframe: str,
@@ -202,7 +203,7 @@ class QuantoryxService:
         metric: str
     ) -> Dict[str, Any]:
         """Executes walk-forward rolling IS/OOS validation slices."""
-        df = self._load_data_safely(symbol, timeframe)
+        df = cls._load_data_safely(symbol, timeframe)
 
         # Standard market tagging to avoid duplicate calculations inside slices
         detector = MarketRegimeDetector()
@@ -264,14 +265,16 @@ class QuantoryxService:
 
     @classmethod
     def run_paper_trading_simulator(
-        self,
+        cls,
         symbol: str,
         capital: float,
         leverage: float,
-        spread: float
+        spread: float,
+        user_id: Optional[str] = None,
+        db: Optional[Session] = None
     ) -> Dict[str, Any]:
         """Steps chronologically through pricing history running the live-trading desk emulator."""
-        df = self._load_data_safely(symbol, "1H")
+        df = cls._load_data_safely(symbol, "1H")
 
         # Automatically classify regimes for trace recording
         detector = MarketRegimeDetector()
@@ -289,7 +292,8 @@ class QuantoryxService:
             starting_balance=capital,
             leverage=leverage,
             spread_pct=spread,
-            risk_manager=risk_mgr
+            risk_manager=risk_mgr,
+            user_id=user_id
         )
 
         # Generate mock signals based on standard fast/slow EMA
@@ -307,7 +311,7 @@ class QuantoryxService:
             if i > 0 and timestamp.date() != df_tagged.index[i-1].date():
                 paper_engine.reset_daily_tracker()
 
-            paper_engine.process_bar(timestamp, row, regime)
+            paper_engine.process_bar(timestamp, row, regime, db=db)
 
             # Check signal triggers
             sig = 0
@@ -324,7 +328,8 @@ class QuantoryxService:
                     stop_loss_pct=1.5,
                     rr_ratio=2.5,
                     timestamp=timestamp,
-                    regime=regime
+                    regime=regime,
+                    db=db
                 )
 
         # Persist standard reports via PathManager on completed run
@@ -374,13 +379,13 @@ class QuantoryxService:
 
     @classmethod
     def run_ai_strategy_selection(
-        self,
+        cls,
         symbol: str,
         timeframe: str,
         threshold: float
     ) -> Dict[str, Any]:
         """Analyzes active indicators, estimates regime parameters, and nominates a champion strategy."""
-        df = self._load_data_safely(symbol, timeframe)
+        df = cls._load_data_safely(symbol, timeframe)
 
         # Extract current active market regime
         detector = MarketRegimeDetector()
@@ -561,9 +566,9 @@ class QuantoryxService:
         return {"strategies": details}
 
     @classmethod
-    def get_market_regime_distribution(self, symbol: str, timeframe: str) -> Dict[str, Any]:
+    def get_market_regime_distribution(cls, symbol: str, timeframe: str) -> Dict[str, Any]:
         """Calculates indicators, runs the regime detector, and maps distribution metrics."""
-        df = self._load_data_safely(symbol, timeframe)
+        df = cls._load_data_safely(symbol, timeframe)
 
         detector = MarketRegimeDetector()
         df_tagged = detector.classify_regimes(df)
@@ -616,10 +621,10 @@ class QuantoryxService:
         return validator.health_checks
 
     @classmethod
-    def get_dashboard_summary_overview(self) -> Dict[str, Any]:
+    def get_dashboard_summary_overview(cls) -> Dict[str, Any]:
         """Assembles unified metrics, tracing portfolio curve and recent AI selections."""
         # 1. Fetch Portfolio values
-        port = self.get_portfolio_snapshot()
+        port = cls.get_portfolio_snapshot()
         
         # 2. Extract latest AI decisions
         ai_log_path = PathManager.resolve_path("logs", "ai_decision_log.csv")
