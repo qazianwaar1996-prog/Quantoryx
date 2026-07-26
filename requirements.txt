@@ -1,0 +1,39 @@
+# Quantoryx — Quantitative Trading Research Platform
+# Core numerical / data stack
+pandas>=2.0.0,<3.0.0
+numpy>=1.24.0,<3.0.0
+
+# Reporting & analytics (no Streamlit — not required for Railway API service)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+tabulate>=0.9.0
+
+# FastAPI Backend & REST API Framework
+# Pydantic v1 intentional pin — the entire codebase uses v1 syntax throughout:
+#   Field(regex=...), class Config: orm_mode = True, allow_population_by_field_name = True
+#   .dict(exclude_unset=True).  Do NOT upgrade to pydantic v2 without a full schema migration.
+# fastapi==0.103.2 supports both pydantic v1 and v2; we are explicitly on v1.
+fastapi==0.103.2
+uvicorn[standard]>=0.23.0,<1.0.0
+pydantic==1.10.21
+python-multipart>=0.0.6
+email-validator>=2.0.0
+
+# Relational Database Persistence (ORM)
+sqlalchemy>=2.0.0,<3.0.0
+psycopg2-binary>=2.9.0  # PostgreSQL driver for Railway Postgres addon
+
+# Security, Cryptography & Session Authorization
+bcrypt>=4.0.1
+PyJWT>=2.7.0
+
+# Asynchronous Task Worker & Message Brokers
+celery>=5.3.0
+redis>=4.6.0
+
+# Real-Time Streaming Support (WebSockets)
+websockets>=11.0.3
+
+# Testing & Continuous Validation (Development)
+pytest>=7.4.0
+httpx>=0.24.0
